@@ -24,7 +24,7 @@ app.add_middleware(
 )
 
 
-# --- 4. DEFINE ROUTES (URLS) ---
+# 4. DEFINE ROUTES (URLS) 
 
 @app.get("/")
 def home():
