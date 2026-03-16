@@ -3,85 +3,86 @@ import { useState, useEffect } from 'react'
 function App() {
   const [schedule, setSchedule] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
+  // 1. Fetch data when the page loads
   useEffect(() => {
-    // Fetch data from our Python Backend
     fetch('http://127.0.0.1:8000/api/schedule/2023')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok')
-        }
-        return response.json()
-      })
+      .then(response => response.json())
       .then(data => {
-        console.log(data[0])
         setSchedule(data)
         setLoading(false)
       })
-      .catch(error => {
-        console.error('Error fetching data:', error)
-        setError(error.message)
-        setLoading(false)
-      })
+      .catch(error => console.error("Error fetching data:", error))
   }, [])
 
+  // 2. Helper function to make dates look nice
+  const formatDate = (dateString) => {
+    if (!dateString) return "TBA"
+    const date = new Date(dateString)
+    return date.toLocaleDateString("en-US", { 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    })
+  }
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
+    <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
       <div className="max-w-6xl mx-auto">
-        <header className="mb-8 border-b border-gray-700 pb-4">
-          <h1 className="text-4xl font-bold text-red-600">F1 2023 Season Schedule</h1>
-          <p className="text-gray-400 mt-2">Powered by FastF1 & FastAPI</p>
+        
+        {/* Header */}
+        <header className="mb-10 text-center">
+          <h1 className="text-5xl font-extrabold text-red-600 tracking-tighter">
+            F1 <span className="text-white">2023 SCHEDULE</span>
+          </h1>
+          <p className="text-gray-400 mt-2">Official FastF1 Data Integration</p>
         </header>
 
-        {loading && (
-          <div className="text-center py-20">
-            <div className="text-2xl animate-pulse">Loading Race Data... 🏎️</div>
-          </div>
-        )}
+        {/* Loading State */}
+        {loading && <p className="text-center text-xl animate-pulse">Loading race data...</p>}
 
-        {error && (
-          <div className="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg">
-            Error loading data: {error}. Is the backend running?
-          </div>
-        )}
+        {/* Grid of Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {schedule.map((race) => (
+            <div key={race.RoundNumber} className="bg-gray-800 rounded-xl overflow-hidden border border-gray-700 hover:border-red-600 transition-all hover:shadow-2xl hover:-translate-y-1">
+              
+              {/* Card Header: Location */}
+              <div className="bg-gray-700 p-3 flex justify-between items-center">
+                <span className="text-xs font-bold bg-gray-900 px-2 py-1 rounded text-gray-300">ROUND {race.RoundNumber}</span>
+                <span className="text-sm font-semibold text-gray-200 uppercase tracking-wide">{race.Location}</span>
+              </div>
 
-        {!loading && !error && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {schedule.map((race, index) => (
-              <div 
-                key={index} 
-                className="bg-gray-800 rounded-lg overflow-hidden hover:bg-gray-750 transition-colors border border-gray-700 shadow-lg"
-              >
-                <div className="bg-gray-700 px-4 py-2 flex justify-between items-center">
-                  <span className="text-sm font-mono text-gray-300">Round {race.RoundNumber}</span>
-                  <span className="text-xs bg-red-600 px-2 py-1 rounded text-white font-bold">
-                    {new Date(race.EventDate).toLocaleDateString()}
-                  </span>
-                </div>
-                <div className="p-4">
-                  <h2 className="text-xl font-bold mb-1">{race.EventName}</h2>
-                  <p className="text-gray-400 text-sm mb-4">{race.Location}, {race.Country}</p>
+              {/* Card Body: Race Name */}
+              <div className="p-5">
+                <h2 className="text-2xl font-bold mb-1 leading-tight">{race.EventName}</h2>
+                <p className="text-gray-500 text-sm mb-4">{race.Country}</p>
+                
+                {/* Times Section */}
+                <div className="space-y-3 pt-4 border-t border-gray-700">
                   
-                  <div className="space-y-2 text-sm text-gray-300">
-                    <div className="flex justify-between">
-                      <span>Qualifying:</span>
-                      <span className="text-white">
-                        {race.Session3Date ? new Date(race.Session3Date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between font-bold text-red-400">
-                      <span>Race:</span>
-                      <span className="text-white">
-                         {race.Session5Date ? new Date(race.Session5Date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
-                      </span>
-                    </div>
+                  {/* Qualifying Row */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-red-400 font-semibold">Qualifying</span>
+                    <span className="text-sm font-mono bg-gray-900 px-2 py-1 rounded text-gray-300">
+                      {formatDate(race.Session4Date)}
+                    </span>
                   </div>
+
+                  {/* Race Row */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-white font-bold">🏁 RACE</span>
+                    <span className="text-sm font-mono bg-red-600 px-2 py-1 rounded text-white font-bold shadow-lg shadow-red-900/50">
+                      {formatDate(race.Session5Date)}
+                    </span>
+                  </div>
+
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
+        
       </div>
     </div>
   )

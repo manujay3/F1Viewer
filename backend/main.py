@@ -36,21 +36,24 @@ def home():
 
 @app.get("/api/schedule/{year}")
 def get_schedule(year: int):
-    """
-    Fetch the race schedule for a specific year.
-    Example: /api/schedule/2023
-    """
     try:
-        # Get the schedule from FastF1
-        schedule = fastf1.get_event_schedule(year)
+        # Get schedule, but ignore Pre-Season Testing (Round 0)
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
         
-        # We only want specific columns for now
-        columns_we_want = ['RoundNumber', 'Country', 'Location', 'EventName', 'EventDate']
+        # --- THIS IS THE FIX ---
+        # We added 'Session4Date' (Quali) and 'Session5Date' (Race)
+        columns_we_want = [
+            'RoundNumber', 
+            'Country', 
+            'Location', 
+            'EventName', 
+            'EventDate', 
+            'Session4Date', 
+            'Session5Date'
+        ]
+        
         filtered_schedule = schedule[columns_we_want]
-
-        # Convert the Pandas DataFrame to a list of dictionaries (JSON format)
-        # .fillna('') replaces any empty values with empty strings so JSON doesn't break
+        # Convert to dictionary (JSON) and handle empty values
         return filtered_schedule.fillna('').to_dict(orient='records')
-
     except Exception as e:
         return {"error": str(e)}
