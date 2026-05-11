@@ -1,16 +1,38 @@
-# React + Vite
+# F1 Analytics Hub
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A full-stack F1 data analytics platform using FastF1, FastAPI, and React.
 
-Currently, two official plugins are available:
+## 🚀 How to Run the Project (Daily Use)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+You will need two separate terminal windows to run the backend and frontend simultaneously.
 
-## React Compiler
+### 1. Start the Backend (Python/FastAPI)
+Open your first terminal and run the following commands:
+cd backend
+source venv/bin/activate
+uvicorn main:app --reload
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+*(The API will now be running on http://127.0.0.1:8000)*
 
-## Expanding the ESLint configuration
+### 2. Start the Frontend (React/Vite)
+Open a second terminal and run the following commands:
+cd frontend
+npm run dev
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+*(The web app will now be running on http://localhost:5173)*
+
+---
+
+## 🛠️ First-Time Setup (New Machine)
+
+If you are setting this up for the first time on a new computer, run these commands first to install the dependencies.
+
+### Backend Setup:
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+### Frontend Setup:
+cd frontend
+npm install
