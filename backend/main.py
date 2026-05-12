@@ -86,28 +86,67 @@ def get_session_results(year: int, location: str, session_type: str):
     
 @app.get("/api/telemetry/{year}/{location}/{session_type}/{driver}")
 def get_telemetry(year: int, location: str, session_type: str, driver: str):
-    """
-    Fetch the raw telemetry (speed, throttle, gears, X/Y coordinates) for a driver's fastest lap.
-    """
     try:
-        # 1. Load the session with telemetry enabled
         session = fastf1.get_session(year, location, session_type)
-        session.load(telemetry=True, weather=False)
+        # Load the session (this takes a few seconds the first time)
+        session.load(telemetry=True, weather=False, messages=False)
 
-        # 2. Grab this specific driver's fastest lap
-        fastest_lap = session.laps.pick_driver(driver).pick_fastest()
+        # 1. Get ALL laps for the driver (No more .pick_fastest()!)
+        driver_laps = session.laps.pick_driver(driver)
         
-        # 3. Extract the microsecond-by-microsecond car telemetry
-        telemetry = fastest_lap.get_telemetry()
+        if len(driver_laps) == 0:
+            return {"error": "No laps recorded for this driver."}
 
-        # 4. Select only the columns we need for the 3D visualizer
-        df = telemetry[['Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'X', 'Y']].copy()
+        # 2. Extract telemetry for the entire session
+        telemetry = driver_laps.get_telemetry()
+
+        # We added RPM to the extraction list!
+        df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
         
-        # 5. Fill any missing data gaps with 0
+        # 🏎️ 4. DOWNSAMPLING (The Memory Saver)
+        # Using [::4] means we only keep every 4th row of data. 
+        # This reduces a 50,000 array down to a safe 12,500 array.
+        df = df.iloc[::4, :] 
+
+        # 5. Convert Time to seconds and clean up any NaNs
+        df['Time'] = df['Time'].dt.total_seconds()
         df = df.fillna(0)
-        
-        # 6. Send the coordinates to React
-        return df.to_dict(orient='records')
+
+        return df.to_dict(orient="records")
         
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Backend Error: {str(e)}"}
+    
+@app.get("/api/telemetry/compare/{year}/{location}/{session_type}/{driver1}/{driver2}")
+def get_telemetry_compare(year: int, location: str, session_type: str, driver1: str, driver2: str):
+    try:
+        session = fastf1.get_session(year, location, session_type)
+        session.load(telemetry=True, weather=False, messages=False)
+
+        def extract_driver_data(driver_code):
+            laps = session.laps.pick_driver(driver_code)
+            if len(laps) == 0:
+                return []
+            
+            telemetry = laps.get_telemetry()
+            df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
+            df = df.iloc[::4, :] # Downsample to save browser memory
+            df['Time'] = df['Time'].dt.total_seconds()
+            df = df.fillna(0)
+            return df.to_dict(orient="records")
+
+        # Fetch both drivers
+        data1 = extract_driver_data(driver1)
+        data2 = extract_driver_data(driver2)
+
+        if not data1 or not data2:
+            return {"error": "Could not find lap data for one or both drivers."}
+
+        # Return them as a combined dictionary
+        return {
+            "driver1": data1,
+            "driver2": data2
+        }
+
+    except Exception as e:
+        return {"error": f"Backend Error: {str(e)}"}

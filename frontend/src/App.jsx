@@ -160,8 +160,17 @@ function App() {
             </div>
             {/* 🏎️ PASTE THE 3D TRACK VISUALIZER RIGHT HERE 🏎️ */}
             <div className="bg-gray-900 p-4 rounded-xl border border-gray-700 mb-8">
-              <h2 className="text-xl font-bold text-white mb-4">Max Verstappen - Q3 Racing Line</h2>
-              <TrackVisualizer year={2023} location="Bahrain" session="Q" driver="VER" />
+            <h2 className="text-xl font-bold text-white mb-4">
+            Car #{selectedDriver} - {activeSession === 'Q' ? 'Qualifying' : 'Race'} Telemetry
+            </h2>
+            {/* Now it dynamically listens to your clicks! */}
+            <TrackVisualizer 
+              year={2023} 
+              location={selectedRace} 
+              session={activeSession} 
+              driver1={selectedDriver} 
+              driver2="16"  // Hardcoded to Charles Leclerc (Car 16) for a test!
+            />
             </div>
             {/* ------------------------------------------------ */}
             
@@ -182,8 +191,13 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
+                    {/* Notice the exact arrow function syntax right below this line! */}
                     {raceResults.map((driver, i) => (
-                      <tr key={i} className="border-b border-gray-750 hover:bg-gray-700/50">
+                      <tr 
+                        key={i} 
+                        onClick={() => setSelectedDriver(String(driver.DriverNumber))}
+                        className={`border-b border-gray-750 hover:bg-gray-700/50 cursor-pointer transition-colors ${selectedDriver === String(driver.DriverNumber) ? 'bg-slate-800 border-l-4 border-l-red-600' : ''}`}
+                      >
                         <td className="p-3 font-mono">{driver.Position}</td>
                         <td className="p-3 font-bold">
                           <span className="text-gray-400 text-sm mr-2">{driver.DriverNumber}</span>
