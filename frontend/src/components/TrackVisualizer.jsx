@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Line, Sphere } from '@react-three/drei';
+import { OrbitControls, Line, Sphere, Html } from '@react-three/drei';
 import * as THREE from 'three';
 
 const formatTime = (totalSeconds) => {
@@ -11,116 +11,183 @@ const formatTime = (totalSeconds) => {
   return `${m}:${s.toString().padStart(2, '0')}.${ms}`;
 };
 
-// 🏎️ THE UPGRADED CAR COMPONENT
-// It now takes a 'color' prop so we can tell them apart!
-function AnimatedCar({ points, rawTelemetry, indexRef, isPlaying, playbackRate, sliderRef, uiRefs, color, isPrimary }) {
+// 🏎️ Official F1 Team Hex Colors
+const TEAM_COLORS = {
+  "VER": "#3671C6", "PER": "#3671C6", 
+  "HAM": "#6CD3BF", "RUS": "#6CD3BF", 
+  "LEC": "#F91536", "SAI": "#F91536", 
+  "NOR": "#F58020", "PIA": "#F58020", 
+  "ALO": "#358C75", "STR": "#358C75", 
+  "GAS": "#2293D1", "OCO": "#2293D1", 
+  "ALB": "#37BEDD", "SAR": "#37BEDD", 
+  "TSU": "#5E8FAA", "DEV": "#5E8FAA", "RIC": "#5E8FAA", 
+  "BOT": "#C92D4B", "ZHO": "#C92D4B", 
+  "MAG": "#B6BABD", "HUL": "#B6BABD", 
+};
+
+const getDriverColor = (driverCode) => TEAM_COLORS[driverCode] || "#ffffff";
+
+// 🏎️ Notice the new 'distancesRef' and 'leaderboardRef' props!
+function AnimatedCar({ points, rawTelemetry, indexRef, isPlaying, playbackRate, sliderRef, uiRefs, color, isPrimary, masterTimeRef, driverCode, distancesRef, leaderboardRef }) {
   const carRef = useRef();
+  const localGhostIndex = useRef(0); 
 
   useFrame(() => {
-    if (!points || points.length < 2) return;
+    if (!points || points.length < 2 || !rawTelemetry) return;
 
-    if (indexRef.current >= points.length || Number.isNaN(indexRef.current)) indexRef.current = 0;
+    let currentData = null;
+    let safeIndex = 0;
 
-    if (isPlaying && isPrimary) {
-      const currentSpeed = 0.5 * playbackRate; // Slowed down for readability
-      indexRef.current += currentSpeed;
-      if (indexRef.current >= points.length) indexRef.current = 0; 
-    }
-
-    const safeIndex = Math.floor(indexRef.current);
-    // If the secondary car DNF'd or has a shorter array, freeze it at its last known point
-    const carPoint = points[safeIndex] || points[points.length - 1]; 
-    const currentData = rawTelemetry[safeIndex] || rawTelemetry[rawTelemetry.length - 1];
-    
-    if (carRef.current && carPoint) {
-      carRef.current.position.copy(carPoint);
+    if (isPrimary) {
+      if (indexRef.current >= points.length || Number.isNaN(indexRef.current)) indexRef.current = 0;
       
-      // We only update the DOM HUD for the Primary Car to avoid overriding data
-      if (isPrimary && currentData) {
+      if (isPlaying) {
+        const currentSpeed = 0.5 * playbackRate; 
+        indexRef.current += currentSpeed;
+        if (indexRef.current >= points.length) indexRef.current = 0; 
+      }
+
+      safeIndex = Math.floor(indexRef.current);
+      const currentPoint = points[safeIndex];
+      currentData = rawTelemetry[safeIndex];
+      
+      if (carRef.current && currentPoint && currentData) {
+        carRef.current.position.copy(currentPoint);
+        masterTimeRef.current = currentData.Time;
+
         if (uiRefs.speed.current) uiRefs.speed.current.innerText = Math.round(currentData.Speed || 0);
         if (uiRefs.gear.current) uiRefs.gear.current.innerText = currentData.nGear || 'N';
-        
-        // Overflow Fix: Math.round() prevents long decimals from breaking the box
         if (uiRefs.rpm.current) uiRefs.rpm.current.innerText = Math.round(currentData.RPM || 0);
-        
         if (uiRefs.throttle.current) uiRefs.throttle.current.style.width = `${currentData.Throttle || 0}%`;
         const brakeVal = currentData.Brake === true ? 100 : (Number(currentData.Brake) || 0);
         if (uiRefs.brake.current) uiRefs.brake.current.style.width = `${brakeVal}%`;
         if (uiRefs.currentTime.current) uiRefs.currentTime.current.innerText = formatTime(currentData.Time);
       }
+
+      if (sliderRef.current && isPlaying) sliderRef.current.value = safeIndex;
+
+    } else {
+      const targetTime = masterTimeRef.current;
+      if (!targetTime) return;
+
+      let searchIndex = localGhostIndex.current;
+      while (searchIndex < rawTelemetry.length - 1 && rawTelemetry[searchIndex].Time < targetTime) searchIndex++;
+      while (searchIndex > 0 && rawTelemetry[searchIndex].Time > targetTime) searchIndex--;
+
+      localGhostIndex.current = searchIndex;
+      const currentPoint = points[searchIndex];
+      currentData = rawTelemetry[searchIndex];
+      
+      if (carRef.current && currentPoint) carRef.current.position.copy(currentPoint);
     }
 
-    if (isPrimary && sliderRef.current && isPlaying) {
-      sliderRef.current.value = safeIndex;
+    // 🏎️ THE LEADERBOARD LOGIC
+    // 1. Every car logs its current distance into the shared memory
+    if (currentData && distancesRef.current) {
+        distancesRef.current[driverCode] = currentData.Distance || 0;
+    }
+
+    // 2. Only the Primary car sorts the list and draws the HTML to prevent 20 cars from drawing at once
+    if (isPrimary && leaderboardRef.current && distancesRef.current) {
+        // We only sort every 3 frames to save processing power and keep it silky smooth
+        if (safeIndex % 3 === 0) {
+            const standings = Object.entries(distancesRef.current)
+                .sort((a, b) => b[1] - a[1]); // Sort from highest distance to lowest
+
+            let htmlString = '';
+            standings.forEach(([drv, dist], pos) => {
+                const teamColor = TEAM_COLORS[drv] || '#ffffff';
+                htmlString += `
+                  <div class="flex items-center gap-3 mb-1 bg-slate-950/80 px-2 py-1 rounded border border-slate-700/50 shadow-sm">
+                    <span class="text-[10px] font-bold text-gray-500 w-4 text-right">${pos + 1}</span>
+                    <span class="w-1.5 h-3 rounded-sm" style="background-color: ${teamColor}"></span>
+                    <span class="text-xs font-bold text-white tracking-widest">${drv}</span>
+                  </div>
+                `;
+            });
+            leaderboardRef.current.innerHTML = htmlString;
+        }
     }
   });
 
   return (
-    <Sphere ref={carRef} args={[1.5, 16, 16]}>
-      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} />
-    </Sphere>
+    <group ref={carRef}>
+      <Sphere args={[1.5, 16, 16]}>
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={isPrimary ? 2 : 1} />
+      </Sphere>
+      <Html distanceFactor={80} center position={[0, 2.5, 0]}>
+        <div className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider select-none pointer-events-none transition-colors ${isPrimary ? 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'bg-slate-900/80 text-gray-300 border border-slate-700/50'}`}>
+          {driverCode}
+        </div>
+      </Html>
+    </group>
   );
 }
 
-// 🏎️ Notice we added a 'driver2' prop here!
-export default function TrackVisualizer({ year, location, session, driver1, driver2 }) {
-  const [telemetry1, setTelemetry1] = useState([]);
-  const [telemetry2, setTelemetry2] = useState([]); // State for the ghost car
+export default function TrackVisualizer({ year, location, session, primaryDriver }) {
+  const [gridData, setGridData] = useState({});
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackRate, setPlaybackRate] = useState(1); 
   const [errorMsg, setErrorMsg] = useState(null);
   
   const indexRef = useRef(0);
   const sliderRef = useRef();
+  
+  // 🏎️ The New Shared Memories
+  const masterTimeRef = useRef(0);
+  const distancesRef = useRef({}); 
+  const leaderboardRef = useRef(null);
+  
   const uiRefs = {
     speed: useRef(null), gear: useRef(null), rpm: useRef(null),
     throttle: useRef(null), brake: useRef(null), currentTime: useRef(null) 
   };
 
   useEffect(() => {
-    setTelemetry1([]); setTelemetry2([]); setErrorMsg(null);
+    setGridData({}); setErrorMsg(null);
     indexRef.current = 0; setPlaybackRate(1); 
+    distancesRef.current = {}; // Reset distances on track change
     if (sliderRef.current) sliderRef.current.value = 0;
+    if (leaderboardRef.current) leaderboardRef.current.innerHTML = '';
 
-    // Use the new comparison endpoint!
-    fetch(`http://localhost:8000/api/telemetry/compare/${year}/${location}/${session}/${driver1}/${driver2}`)
+    const encodedLocation = encodeURIComponent(location);
+
+    fetch(`http://127.0.0.1:8000/api/telemetry/grid/${year}/${encodedLocation}/${session}`)
       .then(async (res) => {
         const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || `Server Error: ${res.status}`);
+        if (!res.ok) {
+            const errorDetail = typeof data.detail === 'object' ? JSON.stringify(data.detail) : data.detail;
+            throw new Error(errorDetail || `Server Error: ${res.status}`);
+        }
         return data;
       })
       .then((data) => {
-         if (data && data.error) setErrorMsg(data.error);
-         else {
-             setTelemetry1(data.driver1);
-             setTelemetry2(data.driver2);
-         }
+         if (data && data.error) setErrorMsg(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
+         else setGridData(data);
       })
       .catch((err) => setErrorMsg(err.message));
-  }, [year, location, session, driver1, driver2]);
+  }, [year, location, session]);
 
-  // Map coordinates for Driver 1
-  const points1 = useMemo(() => {
-    if (!Array.isArray(telemetry1) || telemetry1.length === 0) return [];
-    return telemetry1.filter(t => t && Number.isFinite(t.X) && Number.isFinite(t.Y)).map(t => new THREE.Vector3(t.X / 100, 0, t.Y / 100));
-  }, [telemetry1]);
-
-  // Map coordinates for Driver 2
-  const points2 = useMemo(() => {
-    if (!Array.isArray(telemetry2) || telemetry2.length === 0) return [];
-    return telemetry2.filter(t => t && Number.isFinite(t.X) && Number.isFinite(t.Y)).map(t => new THREE.Vector3(t.X / 100, 0, t.Y / 100));
-  }, [telemetry2]);
+  const primaryTelemetry = gridData[primaryDriver] || [];
+  
+  const trackOutline = useMemo(() => {
+    if (!primaryTelemetry || primaryTelemetry.length === 0) return [];
+    return primaryTelemetry
+      .filter(t => t && Number.isFinite(t.X) && Number.isFinite(t.Y))
+      .map(t => new THREE.Vector3(t.X / 100, 0, t.Y / 100));
+  }, [primaryTelemetry]);
 
   const handleScrub = (e) => {
     indexRef.current = Number(e.target.value);
     setIsPlaying(false); 
-    if (uiRefs.currentTime.current && telemetry1[indexRef.current]) {
-       uiRefs.currentTime.current.innerText = formatTime(telemetry1[indexRef.current].Time);
+    if (uiRefs.currentTime.current && primaryTelemetry[indexRef.current]) {
+       uiRefs.currentTime.current.innerText = formatTime(primaryTelemetry[indexRef.current].Time);
+       masterTimeRef.current = primaryTelemetry[indexRef.current].Time; 
     }
   };
 
   const skipForward = () => {
-    indexRef.current = Math.min(points1.length - 1, indexRef.current + 200); 
+    indexRef.current = Math.min(trackOutline.length - 1, indexRef.current + 200); 
     if (sliderRef.current) sliderRef.current.value = indexRef.current;
   };
   const skipBackward = () => {
@@ -129,11 +196,12 @@ export default function TrackVisualizer({ year, location, session, driver1, driv
   };
   const togglePlaybackSpeed = () => setPlaybackRate(prev => prev === 0.5 ? 1 : prev === 1 ? 2 : prev === 2 ? 4 : 0.5);
 
-  const totalLapTime = telemetry1.length > 0 ? formatTime(telemetry1[telemetry1.length - 1].Time) : "0:00";
+  const totalLapTime = primaryTelemetry.length > 0 ? formatTime(primaryTelemetry[primaryTelemetry.length - 1].Time) : "0:00";
 
   return (
     <div className="w-full flex flex-col gap-4">
-      <div className="w-full h-[450px] bg-slate-950 rounded-xl overflow-hidden relative border border-slate-700">
+      
+      <div className="w-full h-[600px] bg-slate-950 rounded-xl overflow-hidden relative border border-slate-700 shadow-2xl">
         
         {errorMsg && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/90">
@@ -141,18 +209,29 @@ export default function TrackVisualizer({ year, location, session, driver1, driv
           </div>
         )}
 
-        {(!errorMsg && points1.length < 2) && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/80 pointer-events-none">
-            <p className="text-gray-400 font-mono animate-pulse">Downloading Dual Telemetry Matrix...</p>
+        {(!errorMsg && Object.keys(gridData).length === 0) && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/80 pointer-events-none">
+            <p className="text-cyan-400 font-mono animate-pulse mb-2">Downloading 20-Car Telemetry Matrix...</p>
+            <p className="text-gray-500 font-mono text-xs">(This takes a moment for a full Grand Prix)</p>
           </div>
         )}
 
-        {/* 🏎️ Overflow Fix: Widened HUD to w-64 so big numbers fit */}
+        {/* 🏎️ THE NEW LIVE LEADERBOARD TOWER */}
+        <div className="absolute top-4 left-4 z-10 w-32 pointer-events-none">
+          <div className="bg-slate-900/90 border border-slate-700 rounded-t-lg p-2 mb-1 shadow-2xl">
+            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">Live Order</h3>
+          </div>
+          {/* The Animation Engine injects the sorted list right into this div! */}
+          <div ref={leaderboardRef} className="flex flex-col drop-shadow-md"></div>
+        </div>
+
+        {/* Single Car Telemetry HUD */}
         <div className="absolute top-4 right-4 z-10 bg-slate-900/90 border border-slate-700 p-4 rounded-xl w-64 shadow-2xl pointer-events-none">
           <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
              <h3 className="text-xs font-bold text-gray-500 uppercase">Live Telemetry</h3>
-             {/* Show who we are tracking */}
-             <span className="text-xs font-bold text-red-500 bg-red-500/10 px-2 py-1 rounded">Car #{driver1}</span>
+             <span className="text-xs font-bold px-2 py-1 rounded text-slate-900" style={{ backgroundColor: getDriverColor(primaryDriver) }}>
+               Car #{primaryDriver}
+             </span>
           </div>
           
           <div className="flex justify-between items-end mb-4">
@@ -168,10 +247,7 @@ export default function TrackVisualizer({ year, location, session, driver1, driv
           
           <div className="mb-4 bg-slate-950 p-2 rounded border border-slate-800 flex justify-between items-center">
             <span className="text-xs text-gray-500 uppercase font-bold tracking-widest">Engine</span>
-            <div>
-               <span ref={uiRefs.rpm} className="text-sm font-mono text-white">0</span>
-               <span className="text-xs text-gray-500 ml-1">RPM</span>
-            </div>
+            <div><span ref={uiRefs.rpm} className="text-sm font-mono text-white">0</span><span className="text-xs text-gray-500 ml-1">RPM</span></div>
           </div>
 
           <div className="space-y-3">
@@ -190,52 +266,85 @@ export default function TrackVisualizer({ year, location, session, driver1, driv
           </div>
         </div>
 
-        <Canvas camera={{ position: [0, 80, 0], fov: 50 }}>
+        <Canvas camera={{ position: [0, 120, 0], fov: 50 }}>
           <ambientLight intensity={1} />
-          {points1.length >= 2 && (
+          {trackOutline.length >= 2 && (
             <>
-              {/* Draw the track outline */}
-              <Line points={points1} color="#334155" lineWidth={2} />
+              <Line points={trackOutline} color="#334155" lineWidth={2} />
               
-              {/* PRIMARY CAR (Red) */}
-              <AnimatedCar 
-                points={points1} rawTelemetry={telemetry1} indexRef={indexRef} 
-                isPlaying={isPlaying} playbackRate={playbackRate} sliderRef={sliderRef} 
-                uiRefs={uiRefs} color="#ef4444" isPrimary={true} 
-              />
+              <group position={trackOutline[0]}>
+                <Sphere args={[2, 16, 16]}>
+                   <meshBasicMaterial color="#ffffff" opacity={0.5} transparent />
+                </Sphere>
+                <Html distanceFactor={100} center position={[0, -4, 0]}>
+                   <div className="text-[10px] text-gray-400 font-mono uppercase tracking-widest bg-slate-950/80 px-2 py-0.5 rounded border border-gray-700 select-none pointer-events-none">
+                     Start / Finish
+                   </div>
+                </Html>
+              </group>
               
-              {/* GHOST CAR (Cyan) */}
-              {points2.length >= 2 && (
-                <AnimatedCar 
-                  points={points2} rawTelemetry={telemetry2} indexRef={indexRef} 
-                  isPlaying={isPlaying} playbackRate={playbackRate} sliderRef={sliderRef} 
-                  uiRefs={uiRefs} color="#06b6d4" isPrimary={false} 
-                />
-              )}
+              {Object.keys(gridData).map((driverCode) => {
+                const driverTelemetry = gridData[driverCode];
+                const driverPoints = driverTelemetry
+                  .filter(t => t && Number.isFinite(t.X) && Number.isFinite(t.Y))
+                  .map(t => new THREE.Vector3(t.X / 100, 0, t.Y / 100));
+                
+                if (driverPoints.length < 2) return null;
+
+                const isPrimary = driverCode === primaryDriver;
+
+                return (
+                  <AnimatedCar 
+                    key={driverCode}
+                    driverCode={driverCode} 
+                    points={driverPoints} 
+                    rawTelemetry={driverTelemetry} 
+                    indexRef={indexRef} 
+                    isPlaying={isPlaying} 
+                    playbackRate={playbackRate} 
+                    sliderRef={sliderRef} 
+                    uiRefs={uiRefs} 
+                    color={getDriverColor(driverCode)} 
+                    isPrimary={isPrimary} 
+                    masterTimeRef={masterTimeRef} 
+                    distancesRef={distancesRef} 
+                    leaderboardRef={leaderboardRef}
+                  />
+                );
+              })}
             </>
           )}
           <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
         </Canvas>
       </div>
 
-      {/* YouTube Scrubber Controls remain the exact same here... */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex flex-col gap-3">
         <div className="flex items-center gap-4">
           <span ref={uiRefs.currentTime} className="text-sm font-mono text-cyan-400 w-12 text-right">0:00.0</span>
           <input 
-            type="range" ref={sliderRef} min="0" max={points1.length > 0 ? points1.length - 1 : 100} 
-            defaultValue="0" disabled={points1.length < 2 || errorMsg} onChange={handleScrub}
-            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-600 disabled:opacity-50"
+            type="range" 
+            ref={sliderRef} 
+            min="0" 
+            max={trackOutline.length > 0 ? trackOutline.length - 1 : 100} 
+            defaultValue="0" 
+            disabled={trackOutline.length < 2 || errorMsg} 
+            onChange={handleScrub} 
+            className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-600 disabled:opacity-50" 
           />
           <span className="text-sm font-mono text-gray-500 w-12">{totalLapTime}</span>
         </div>
+        
         <div className="flex items-center justify-between mt-2">
           <div className="flex items-center gap-2">
-            <button onClick={skipBackward} disabled={points1.length < 2 || errorMsg} className="p-2 text-gray-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50" title="Rewind">⏪</button>
-            <button onClick={() => setIsPlaying(!isPlaying)} disabled={points1.length < 2 || errorMsg} className="w-10 h-10 flex items-center justify-center bg-white text-black hover:bg-gray-200 rounded-full transition-colors disabled:opacity-50">{isPlaying ? '⏸' : '▶️'}</button>
-            <button onClick={skipForward} disabled={points1.length < 2 || errorMsg} className="p-2 text-gray-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50" title="Fast Forward">⏩</button>
+            <button onClick={skipBackward} disabled={trackOutline.length < 2 || errorMsg} className="p-2 text-gray-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50">⏪</button>
+            <button onClick={() => setIsPlaying(!isPlaying)} disabled={trackOutline.length < 2 || errorMsg} className="w-10 h-10 flex items-center justify-center bg-white text-black hover:bg-gray-200 rounded-full transition-colors disabled:opacity-50">
+              {isPlaying ? '⏸' : '▶️'}
+            </button>
+            <button onClick={skipForward} disabled={trackOutline.length < 2 || errorMsg} className="p-2 text-gray-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50">⏩</button>
           </div>
-          <button onClick={togglePlaybackSpeed} disabled={points1.length < 2 || errorMsg} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-mono text-sm rounded-lg border border-slate-700 transition-colors disabled:opacity-50">{playbackRate}x Speed</button>
+          <button onClick={togglePlaybackSpeed} disabled={trackOutline.length < 2 || errorMsg} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-mono text-sm rounded-lg border border-slate-700 transition-colors disabled:opacity-50">
+            {playbackRate}x Speed
+          </button>
         </div>
       </div>
     </div>

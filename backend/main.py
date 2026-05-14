@@ -58,7 +58,6 @@ def get_schedule(year: int):
 
 @app.get("/api/results/{year}/{location}/{session_type}")
 def get_session_results(year: int, location: str, session_type: str):
-    
     try:
         # Load the session. Disabling telemetry/weather makes this load much faster.
         session = fastf1.get_session(year, location, session_type)
@@ -83,40 +82,42 @@ def get_session_results(year: int, location: str, session_type: str):
 
     except Exception as e:
         return {"error": str(e)}
-    
-@app.get("/api/telemetry/{year}/{location}/{session_type}/{driver}")
-def get_telemetry(year: int, location: str, session_type: str, driver: str):
+
+# 🏎️ MOVED TO TOP: Specific Grid Route
+@app.get("/api/telemetry/grid/{year}/{location}/{session_type}")
+def get_full_grid_telemetry(year: int, location: str, session_type: str):
     try:
         session = fastf1.get_session(year, location, session_type)
-        # Load the session (this takes a few seconds the first time)
         session.load(telemetry=True, weather=False, messages=False)
 
-        # 1. Get ALL laps for the driver (No more .pick_fastest()!)
-        driver_laps = session.laps.pick_driver(driver)
+        grid_data = {}
         
-        if len(driver_laps) == 0:
-            return {"error": "No laps recorded for this driver."}
+        # 🏎️ Loop through every single driver in the official session results
+        for driver in session.results['Abbreviation']:
+            laps = session.laps.pick_driver(driver)
+            
+            # If the driver DNS (Did Not Start), skip them
+            if len(laps) == 0:
+                continue
+            
+            telemetry = laps.get_telemetry()
+            df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
+            
+            # Downsample to save memory (Crucial for 20 cars!)
+            df = df.iloc[::4, :] 
+            df['Time'] = df['Time'].dt.total_seconds()
+            df = df.fillna(0)
+            
+            # Add this driver's array to our massive dictionary
+            grid_data[driver] = df.to_dict(orient="records")
 
-        # 2. Extract telemetry for the entire session
-        telemetry = driver_laps.get_telemetry()
-
-        # We added RPM to the extraction list!
-        df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
-        
-        # 🏎️ 4. DOWNSAMPLING (The Memory Saver)
-        # Using [::4] means we only keep every 4th row of data. 
-        # This reduces a 50,000 array down to a safe 12,500 array.
-        df = df.iloc[::4, :] 
-
-        # 5. Convert Time to seconds and clean up any NaNs
-        df['Time'] = df['Time'].dt.total_seconds()
-        df = df.fillna(0)
-
-        return df.to_dict(orient="records")
-        
+        # 🏎️ FIXED INDENTATION: This is now outside the for-loop!
+        return grid_data
+    
     except Exception as e:
         return {"error": f"Backend Error: {str(e)}"}
-    
+
+# 🏎️ MOVED TO TOP: Specific Compare Route
 @app.get("/api/telemetry/compare/{year}/{location}/{session_type}/{driver1}/{driver2}")
 def get_telemetry_compare(year: int, location: str, session_type: str, driver1: str, driver2: str):
     try:
@@ -150,3 +151,61 @@ def get_telemetry_compare(year: int, location: str, session_type: str, driver1: 
 
     except Exception as e:
         return {"error": f"Backend Error: {str(e)}"}
+
+# ⚠️ MOVED TO BOTTOM: Dynamic Route (Catch-all)
+@app.get("/api/telemetry/{year}/{location}/{session_type}/{driver}")
+def get_telemetry(year: int, location: str, session_type: str, driver: str):
+    try:
+        session = fastf1.get_session(year, location, session_type)
+        # Load the session (this takes a few seconds the first time)
+        session.load(telemetry=True, weather=False, messages=False)
+
+        # 1. Get ALL laps for the driver (No more .pick_fastest()!)
+        driver_laps = session.laps.pick_driver(driver)
+        
+        if len(driver_laps) == 0:
+            return {"error": "No laps recorded for this driver."}
+
+        # 2. Extract telemetry for the entire session
+        telemetry = driver_laps.get_telemetry()
+
+        # We added RPM to the extraction list!
+        df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
+        
+        # 🏎️ 4. DOWNSAMPLING (The Memory Saver)
+        # Using [::4] means we only keep every 4th row of data. 
+        # This reduces a 50,000 array down to a safe 12,500 array.
+        df = df.iloc[::4, :] 
+
+        # 5. Convert Time to seconds and clean up any NaNs
+        df['Time'] = df['Time'].dt.total_seconds()
+        df = df.fillna(0)
+
+        return df.to_dict(orient="records")
+        
+    except Exception as e:
+        return {"error": f"Backend Error: {str(e)}"}
+    
+from fastf1.ergast import Ergast
+
+# Initialize the Ergast API interface
+ergast = Ergast()
+
+@app.get("/api/standings/{year}")
+def get_season_standings(year: int):
+    try:
+        # Fetch driver standings
+        driver_standings = ergast.get_driver_standings(season=year)
+        # Fetch constructor standings
+        team_standings = ergast.get_constructor_standings(season=year)
+        
+        # FastF1 returns a complex object; we extract the actual DataFrame and convert to dict
+        drivers_df = driver_standings.content[0]
+        teams_df = team_standings.content[0]
+        
+        return {
+            "drivers": drivers_df.fillna('').to_dict(orient="records"),
+            "constructors": teams_df.fillna('').to_dict(orient="records")
+        }
+    except Exception as e:
+        return {"error": f"Failed to fetch standings: {str(e)}"}
