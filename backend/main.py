@@ -4,9 +4,11 @@ import fastf1
 import os
 import pandas as pd
 
+if not os.path.exists('cache'):
+    os.makedirs('cache')
 
 # Enable the cache in the 'cache' directory
-fastf1.Cache.enable_cache('cache') 
+fastf1.Cache.enable_cache('cache')
 
 
 # --- 2. CREATE THE APP ---
