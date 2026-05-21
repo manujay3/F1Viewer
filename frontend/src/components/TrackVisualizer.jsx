@@ -143,16 +143,20 @@ export default function TrackVisualizer({ year, location, session, primaryDriver
     throttle: useRef(null), brake: useRef(null), currentTime: useRef(null) 
   };
 
+  // 🏎️ DYNAMIC URL
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
   useEffect(() => {
     setGridData({}); setErrorMsg(null);
     indexRef.current = 0; setPlaybackRate(1); 
-    distancesRef.current = {}; // Reset distances on track change
+    distancesRef.current = {}; 
     if (sliderRef.current) sliderRef.current.value = 0;
     if (leaderboardRef.current) leaderboardRef.current.innerHTML = '';
 
     const encodedLocation = encodeURIComponent(location);
 
-    fetch(`http://127.0.0.1:8000/api/telemetry/grid/${year}/${encodedLocation}/${session}`)
+    // 🛡️ Updated to use API_BASE_URL
+    fetch(`${API_BASE_URL}/api/telemetry/grid/${year}/${encodedLocation}/${session}`)
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) {

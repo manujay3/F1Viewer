@@ -15,8 +15,12 @@ function RaceCenter() {
   // 🏎️ Default to Verstappen's Abbreviation
   const [selectedDriver, setSelectedDriver] = useState('VER'); 
 
+  // 🏎️ DYNAMIC URL: Uses Vercel's environment variable if it exists, otherwise falls back to localhost
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/schedule/2023')
+    // 🛡️ Updated fetch call
+    fetch(`${API_BASE_URL}/api/schedule/2023`)
       .then(res => res.json())
       .then(data => {
         setSchedule(data);
@@ -26,14 +30,15 @@ function RaceCenter() {
         setError(err.message);
         setLoading(false);
       });
-  }, []);
+  }, [API_BASE_URL]); // Added dependency to clear React warnings
 
   const fetchResults = (location, sessionType = 'Q') => {
     setSelectedRace(location);
     setActiveSession(sessionType);
     setResultsLoading(true);
     
-    fetch(`http://127.0.0.1:8000/api/results/2023/${location}/${sessionType}`)
+    // 🛡️ Updated fetch call
+    fetch(`${API_BASE_URL}/api/results/2023/${location}/${sessionType}`)
       .then(async res => {
         if (!res.ok) throw new Error(`Backend crashed with status: ${res.status}`);
         const data = await res.json();
