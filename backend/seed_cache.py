@@ -4,7 +4,7 @@ import redis # type: ignore
 import gc
 
 # 1. Connect directly to your Upstash Cloud Database
-REDIS_URL = "rediss://default:********@major-barnacle-92825.upstash.io:6379" # <-- PASTE YOUR URL HERE
+REDIS_URL = "rediss://default:gQAAAAAAAWqZAAIgcDE3OGNhZTJkYzMxNzE0ZGYwYmE3ZDM1NTFjMmM3Mjc5NA@major-barnacle-92825.upstash.io:6379"
 redis_client = redis.from_url(REDIS_URL, decode_responses=True, ssl_cert_reqs="none")
 
 def seed_race_to_cloud(year, location, session_type):
