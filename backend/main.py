@@ -91,54 +91,18 @@ def get_session_results(year: int, location: str, session_type: str):
 @app.get("/api/telemetry/grid/{year}/{location}/{session_type}")
 def get_full_grid_telemetry(year: int, location: str, session_type: str):
     try:
-        # 🛡️ STEP 1: Create a unique ID for this exact race
         cache_key = f"grid_{year}_{location}_{session_type}"
 
-        # 🛡️ STEP 2: The Cache Check
-        try:
-            cached_data = redis_client.get(cache_key)
-            if cached_data:
-                print(f"✅ CACHE HIT: Serving {cache_key} instantly from Redis!")
-                return json.loads(cached_data)
-        except Exception as e:
-            print(f"⚠️ Redis connection failed, falling back to FastF1: {e}")
-
-        # 🛡️ STEP 3: The Cache Miss (If Redis is empty, do the heavy lifting)
-        print(f"⚠️ CACHE MISS: Calculating {cache_key} via FastF1...")
+        # 🛡️ Render now ONLY looks at Redis. It does zero math.
+        cached_data = redis_client.get(cache_key)
         
-        session = fastf1.get_session(year, location, session_type)
-        session.load(telemetry=True, weather=False, messages=False)
-
-        grid_data = {}
-        
-        for driver in session.results['Abbreviation']:
-            laps = session.laps.pick_driver(driver)
-            if len(laps) == 0:
-                continue
+        if cached_data:
+            print(f"✅ Serving {cache_key} instantly from Redis!")
+            return json.loads(cached_data)
+        else:
+            # If the data isn't in Redis yet, Render politely declines instead of crashing
+            return {"error": "Data not in cache. Please run the local seeder script for this race."}
             
-            telemetry = laps.get_telemetry()
-            df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
-            
-            # Aggressive downsample to save RAM
-            df = df.iloc[::6, :] 
-            df['Time'] = df['Time'].dt.total_seconds()
-            df = df.fillna(0)
-            
-            grid_data[driver] = df.to_dict(orient="records")
-
-            # Nuke the dataframes from RAM instantly
-            del telemetry
-            del df
-            gc.collect()
-
-        # 🛡️ STEP 4: Save the final JSON to Redis for the next 30 days
-        try:
-            redis_client.setex(cache_key, 2592000, json.dumps(grid_data))
-        except Exception as e:
-            print(f"⚠️ Failed to save to Redis: {e}")
-
-        return grid_data
-    
     except Exception as e:
         return {"error": f"Backend Error: {str(e)}"}
 
