@@ -1,6 +1,6 @@
 import fastf1
 import json
-import redis # type: ignore
+import redis 
 import gc
 
 # 1. Connect directly to your Upstash Cloud Database

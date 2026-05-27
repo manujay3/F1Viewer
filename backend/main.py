@@ -91,17 +91,23 @@ def get_session_results(year: int, location: str, session_type: str):
 @app.get("/api/telemetry/grid/{year}/{location}/{session_type}")
 def get_full_grid_telemetry(year: int, location: str, session_type: str):
     try:
-        cache_key = f"grid_{year}_{location}_{session_type}"
+        # 🧠 THE FIX: Translate fuzzy React names (Bahrain) to strict DB names (Sakhir)
+        # This takes 0.01 seconds and uses almost zero memory!
+        fastf1.Cache.enable_cache('cache')
+        event = fastf1.get_event(year, location)
+        strict_location = event.Location 
+        
+        # Now we build the key using the strict name!
+        cache_key = f"grid_{year}_{strict_location}_{session_type}"
 
-        # 🛡️ Render now ONLY looks at Redis. It does zero math.
+        # 🛡️ Look in Redis
         cached_data = redis_client.get(cache_key)
         
         if cached_data:
-            print(f"✅ Serving {cache_key} instantly from Redis!")
+            print(f"Serving {cache_key} instantly from Redis!")
             return json.loads(cached_data)
         else:
-            # If the data isn't in Redis yet, Render politely declines instead of crashing
-            return {"error": "Data not in cache. Please run the local seeder script for this race."}
+            return {"error": f"Data not in cache. Looked for key: {cache_key}"}
             
     except Exception as e:
         return {"error": f"Backend Error: {str(e)}"}
