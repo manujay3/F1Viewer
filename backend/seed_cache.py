@@ -7,29 +7,20 @@ import gc
 REDIS_URL = "rediss://default:gQAAAAAAAWqZAAIgcDE3OGNhZTJkYzMxNzE0ZGYwYmE3ZDM1NTFjMmM3Mjc5NA@major-barnacle-92825.upstash.io:6379"
 redis_client = redis.from_url(REDIS_URL, decode_responses=True, ssl_cert_reqs="none")
 
-def seed_entire_season(year):
-    print(f"🏆 Starting Mass Data Upload for the {year} Season...")
+def seed_optimized_season(year):
+    print("🧹 Wiping the bloated data from the database...")
+    redis_client.flushdb() # This gives us a totally clean slate
+    
+    print(f"🏆 Starting Optimized Data Upload for {year}...")
     fastf1.Cache.enable_cache('cache')
-    
-    # 1. Grab the official schedule for the year
     schedule = fastf1.get_event_schedule(year)
-    
-    # Filter out pre-season testing (Round 0)
     races = schedule[schedule['RoundNumber'] > 0]
 
-    # 2. Loop through every single location on the calendar
     for index, event in races.iterrows():
         location = event['Location']
         
-        # 3. Process BOTH Qualifying ('Q') and the Sunday Race ('R')
         for session_type in ['Q', 'R']:
             cache_key = f"grid_{year}_{location}_{session_type}"
-            
-            # Smart Check: If we already uploaded this race, skip it to save time!
-            if redis_client.exists(cache_key):
-                print(f"{cache_key} already in database. Skipping...")
-                continue
-            
             print(f"⚙️ Crunching {cache_key}...")
             
             try:
@@ -41,10 +32,18 @@ def seed_entire_season(year):
                     laps = session.laps.pick_driver(driver)
                     if len(laps) == 0: continue
                     
-                    telemetry = laps.get_telemetry()
+                    # 🛡️ THE FIX: Only grab the absolute fastest lap for the 3D visualizer
+                    try:
+                        fastest_lap = laps.pick_fastest()
+                        telemetry = fastest_lap.get_telemetry()
+                    except:
+                        # If a driver crashed on Lap 1 and has no valid laps, we skip them safely
+                        continue 
+                        
                     df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
                     
-                    df = df.iloc[::6, :] 
+                    # We can use a much lighter downsample now because the data is so small!
+                    df = df.iloc[::3, :] 
                     df['Time'] = df['Time'].dt.total_seconds()
                     df = df.fillna(0)
                     
@@ -54,12 +53,12 @@ def seed_entire_season(year):
                     del df
                     gc.collect()
 
-                # Upload to Upstash
+                # Upload the ultra-lightweight JSON to Upstash
                 redis_client.set(cache_key, json.dumps(grid_data))
-                print(f"SUCCESS: {cache_key} uploaded!")
+                print(f"✅ SUCCESS: {cache_key} uploaded!")
                 
             except Exception as e:
-                print(f"Failed to process {cache_key}: {e}")
+                print(f"❌ Failed to process {cache_key}: {e}")
 
-# 🚀 Launch the mass upload!
-seed_entire_season(2023)
+# Launch it!
+seed_optimized_season(2023)
