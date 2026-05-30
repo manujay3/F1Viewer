@@ -4,6 +4,7 @@ import fastf1
 import os
 import pandas as pd
 import redis
+import json
 
 if not os.path.exists('cache'):
     os.makedirs('cache')
