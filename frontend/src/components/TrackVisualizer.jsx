@@ -155,22 +155,41 @@ export default function TrackVisualizer({ year, location, session, primaryDriver
 
     const encodedLocation = encodeURIComponent(location);
 
-    // 🛡️ Updated to use API_BASE_URL
+    // 1️⃣ Step One: Ask the backend for the Cloudflare Link
     fetch(`${API_BASE_URL}/api/telemetry/grid/${year}/${encodedLocation}/${session}`)
       .then(async (res) => {
-        const data = await res.json();
+        const backendData = await res.json();
         if (!res.ok) {
-            const errorDetail = typeof data.detail === 'object' ? JSON.stringify(data.detail) : data.detail;
+            const errorDetail = typeof backendData.detail === 'object' ? JSON.stringify(backendData.detail) : backendData.detail;
             throw new Error(errorDetail || `Server Error: ${res.status}`);
         }
-        return data;
+        return backendData;
       })
-      .then((data) => {
-         if (data && data.error) setErrorMsg(typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
-         else setGridData(data);
+      .then(async (backendData) => {
+         if (backendData && backendData.error) {
+             setErrorMsg(typeof backendData.error === 'object' ? JSON.stringify(backendData.error) : backendData.error);
+             return;
+         }
+
+         // 2️⃣ Step Two: The Cloudflare Shuffle! Grab the massive JSON from the Edge URL
+         if (backendData.data_url) {
+             console.log("🔗 Fetching race data directly from Cloudflare:", backendData.data_url);
+             
+             const cloudflareResponse = await fetch(backendData.data_url);
+             if (!cloudflareResponse.ok) {
+                 throw new Error("Failed to download from Cloudflare edge");
+             }
+             
+             const raceData = await cloudflareResponse.json();
+             
+             // Now we set the actual 20-car JSON array into state!
+             setGridData(raceData);
+         } else {
+             throw new Error("Backend did not return a valid data_url.");
+         }
       })
       .catch((err) => setErrorMsg(err.message));
-  }, [year, location, session]);
+  }, [year, location, session, API_BASE_URL]);
 
   const primaryTelemetry = gridData[primaryDriver] || [];
   
