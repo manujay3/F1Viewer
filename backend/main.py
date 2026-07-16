@@ -25,10 +25,6 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
     allow_headers=["*"],
 )
-
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-
 # 4. DEFINE ROUTES (URLS) 
 
 @app.get("/")
