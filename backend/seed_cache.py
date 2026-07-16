@@ -1,17 +1,28 @@
 import fastf1
 import json
-import redis 
+import boto3 # type: ignore
 import gc
+import os
+from dotenv import load_dotenv
 
-# 1. Connect directly to your Upstash Cloud Database
-REDIS_URL = "rediss://default:gQAAAAAAAWqZAAIgcDE3OGNhZTJkYzMxNzE0ZGYwYmE3ZDM1NTFjMmM3Mjc5NA@major-barnacle-92825.upstash.io:6379"
-redis_client = redis.from_url(REDIS_URL, decode_responses=True, ssl_cert_reqs="none")
+# Load your secret keys from the hidden .env file
+load_dotenv()
 
-def seed_optimized_season(year):
-    print("🧹 Wiping the bloated data from the database...")
-    redis_client.flushdb() # This gives us a totally clean slate
-    
-    print(f"🏆 Starting Optimized Data Upload for {year}...")
+ENDPOINT_URL = os.getenv("R2_ENDPOINT_URL")
+ACCESS_KEY = os.getenv("R2_ACCESS_KEY")
+SECRET_KEY = os.getenv("R2_SECRET_KEY")
+BUCKET_NAME = "f1-telemetry"
+
+# Initialize the S3 client pointing to Cloudflare R2
+s3_client = boto3.client(
+    's3',
+    endpoint_url=ENDPOINT_URL,
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY
+)
+
+def seed_season_to_r2(year):
+    print(f"Starting Full-Race R2 Upload for the {year} Season...")
     fastf1.Cache.enable_cache('cache')
     schedule = fastf1.get_event_schedule(year)
     races = schedule[schedule['RoundNumber'] > 0]
@@ -20,8 +31,8 @@ def seed_optimized_season(year):
         location = event['Location']
         
         for session_type in ['Q', 'R']:
-            cache_key = f"grid_{year}_{location}_{session_type}"
-            print(f"⚙️ Crunching {cache_key}...")
+            file_name = f"grid_{year}_{location}_{session_type}.json"
+            print(f"⚙️ Crunching full 2-hour session: {file_name}...")
             
             try:
                 session = fastf1.get_session(year, location, session_type)
@@ -32,18 +43,13 @@ def seed_optimized_season(year):
                     laps = session.laps.pick_driver(driver)
                     if len(laps) == 0: continue
                     
-                    # 🛡️ THE FIX: Only grab the absolute fastest lap for the 3D visualizer
-                    try:
-                        fastest_lap = laps.pick_fastest()
-                        telemetry = fastest_lap.get_telemetry()
-                    except:
-                        # If a driver crashed on Lap 1 and has no valid laps, we skip them safely
-                        continue 
+                    # Grab the telemetry for the ENTIRE session
+                    telemetry = laps.get_telemetry()
                         
                     df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
                     
-                    # We can use a much lighter downsample now because the data is so small!
-                    df = df.iloc[::3, :] 
+                    # Downsample 1 out of every 10 points for smooth 3D animation
+                    df = df.iloc[::10, :] 
                     df['Time'] = df['Time'].dt.total_seconds()
                     df = df.fillna(0)
                     
@@ -53,12 +59,17 @@ def seed_optimized_season(year):
                     del df
                     gc.collect()
 
-                # Upload the ultra-lightweight JSON to Upstash
-                redis_client.set(cache_key, json.dumps(grid_data))
-                print(f"✅ SUCCESS: {cache_key} uploaded!")
+                # Upload directly to your public Cloudflare R2 bucket
+                s3_client.put_object(
+                    Bucket=BUCKET_NAME,
+                    Key=file_name,
+                    Body=json.dumps(grid_data),
+                    ContentType='application/json'
+                )
+                print(f"SUCCESS: {file_name} uploaded to Cloudflare R2!")
                 
             except Exception as e:
-                print(f"❌ Failed to process {cache_key}: {e}")
+                print(f"Failed to process {file_name}: {e}")
 
-# Launch it!
-seed_optimized_season(2023)
+# Launch the pipeline!
+seed_season_to_r2(2023)

@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 import fastf1
 import os
 import pandas as pd
-import redis
 import json
 
 if not os.path.exists('cache'):
@@ -37,7 +36,7 @@ def home():
     """
     A simple check to see if the server is running.
     """
-    return {"message": "F1Viewer API is running! 🏎️"}
+    return {"message": "F1Viewer API is running!"}
 
 
 @app.get("/api/schedule/{year}")
@@ -89,26 +88,28 @@ def get_session_results(year: int, location: str, session_type: str):
     except Exception as e:
         return {"error": str(e)}
 
+# Make sure to remove 'import redis' from the top of your file!
+# You still need fastf1 and FastAPI imports.
+
 @app.get("/api/telemetry/grid/{year}/{location}/{session_type}")
 def get_full_grid_telemetry(year: int, location: str, session_type: str):
     try:
-        # 🧠 THE FIX: Translate fuzzy React names (Bahrain) to strict DB names (Sakhir)
-        # This takes 0.01 seconds and uses almost zero memory!
+        # Normalize the location name (e.g., Bahrain -> Sakhir)
         fastf1.Cache.enable_cache('cache')
         event = fastf1.get_event(year, location)
         strict_location = event.Location 
         
-        # Now we build the key using the strict name!
-        cache_key = f"grid_{year}_{strict_location}_{session_type}"
-
-        # 🛡️ Look in Redis
-        cached_data = redis_client.get(cache_key)
+        # Build the exact filename that lives in your bucket
+        file_name = f"grid_{year}_{strict_location}_{session_type}.json"
         
-        if cached_data:
-            print(f"Serving {cache_key} instantly from Redis!")
-            return json.loads(cached_data)
-        else:
-            return {"error": f"Data not in cache. Looked for key: {cache_key}"}
+        # PASTE YOUR PUBLIC DEVELOPMENT URL HERE
+        r2_public_base_url = "https://pub-f72c90d0d12e438e9221f1f0c615638f.r2.dev"
+        
+        # Construct the direct URL to the data asset
+        file_url = f"{r2_public_base_url}/{file_name}"
+        
+        # Return the link so your React frontend can fetch the data directly
+        return {"data_url": file_url}
             
     except Exception as e:
         return {"error": f"Backend Error: {str(e)}"}
@@ -168,7 +169,7 @@ def get_telemetry(year: int, location: str, session_type: str, driver: str):
         # We added RPM to the extraction list!
         df = telemetry[['Time', 'Distance', 'Speed', 'Throttle', 'Brake', 'nGear', 'RPM', 'X', 'Y']].copy()
         
-        # 🏎️ 4. DOWNSAMPLING (The Memory Saver)
+        # 4. DOWNSAMPLING (The Memory Saver)
         # Using [::4] means we only keep every 4th row of data. 
         # This reduces a 50,000 array down to a safe 12,500 array.
         df = df.iloc[::4, :] 
